@@ -2,8 +2,18 @@ project "lapdance" {
     license = file("./UNLICENSE")
 
     executable.d "lapdance" {
-        sources = ["app/**/*.d", "core/**/*.d", "languages/**/*.d"]
-        flags = ["-Iapp", "-Icore", "-Ilanguages"]
+        sources = [
+            "app/lapdance/main.d",
+            "core/lapdance/config.d",
+            "core/lapdance/diagnostics.d",
+            "core/lapdance/formatter.d",
+            "core/lapdance/input.d",
+            "core/lapdance/language.d",
+            "core/lapdance/token.d",
+            "core/lapdance/ast.d",
+            "languages/d/formatter.d"
+        ]
+        flags = ["-Iapp", "-Icore", "-Ilanguages/d"]
         install = true
     }
 }

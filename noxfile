@@ -2,21 +2,31 @@ tasks:
   build:
     run: |
       mkdir -p build
-      dmd -ofbuild/lapdance app/lapdance/main.d core/lapdance/*.d languages/d/*.d
+      ldc2 -Iapp -Icore -Ilanguages/d -ofbuild/lapdance \
+        app/lapdance/main.d core/lapdance/*.d languages/d/*.d
+      ldc2 -Iapp -Icore -Ilanguages/d -ofbuild/lapdance_tests \
+        tests/lapdance_tests.d core/lapdance/config.d core/lapdance/token.d \
+        core/lapdance/formatter.d languages/d/formatter.d
 
   test:
     run: |
-      ./build/lapdance --version
+      mkdir -p build/debug/lapdance_tests
+      ldc2 -Iapp -Icore -Ilanguages/d \
+        -ofbuild/debug/lapdance_tests/lapdance_tests \
+        tests/lapdance_tests.d core/lapdance/config.d core/lapdance/token.d \
+        core/lapdance/formatter.d languages/d/formatter.d
+      ./build/debug/lapdance/lapdance --version
+      ./build/debug/lapdance_tests/lapdance_tests
       printf 'import std.stdio;\nvoid main() { writeln("ok"); }\n' > /tmp/lapdance_smoke.d
-      ./build/lapdance format /tmp/lapdance_smoke.d
-      ./build/lapdance check /tmp/lapdance_smoke.d
+      ./build/debug/lapdance/lapdance format /tmp/lapdance_smoke.d
+      ./build/debug/lapdance/lapdance check /tmp/lapdance_smoke.d
 
   check:
-    run: ./build/lapdance check /tmp/lapdance_smoke.d
+    run: ./build/debug/lapdance/lapdance check /tmp/lapdance_smoke.d
 
   clean:
     run: |
       rm -rf build /tmp/lapdance_smoke.d
 
   run:
-    run: ./build/lapdance --help
+    run: ./build/debug/lapdance/lapdance --help
