@@ -1,14 +1,15 @@
 module lapdance.main;
 
 import std.array : appender;
-import std.file : exists, readText, write;
+import std.algorithm : sort;
+import std.file : dirEntries, exists, isDir, readText, SpanMode, write;
 import std.stdio;
 import std.string : splitLines, strip;
 
 import lapdance.config;
 import lapdance.formatter;
 import lapdance.input;
-import lapdance.lang.d_formatter;
+import formatter;
 import lapdance.language;
 
 int main(string[] args)
@@ -67,11 +68,35 @@ int runLapdance(string[] args)
         return 2;
     }
 
+    remaining = expandInputPaths(remaining, registry);
+
     if (command == "check")
         return runCheckMode(remaining, config, registry);
     if (command == "diff")
         return runDiffMode(remaining, config, registry);
     return runFormatMode(remaining, config, registry);
+}
+
+string[] expandInputPaths(string[] paths, FormatterRegistry registry)
+{
+    string[] expanded;
+    foreach (path; paths)
+    {
+        if (!exists(path) || !isDir(path))
+        {
+            expanded ~= path;
+            continue;
+        }
+
+        foreach (entry; dirEntries(path, SpanMode.depth))
+        {
+            if (!entry.isDir && registry.acceptsPath(entry.name))
+                expanded ~= entry.name;
+        }
+    }
+
+    expanded.sort;
+    return expanded;
 }
 
 void printHelp()
@@ -213,3 +238,4 @@ string diffText(string before, string after)
 
     return result.data;
 }
+
