@@ -1,0 +1,22 @@
+tasks:
+  build:
+    run: |
+      mkdir -p build
+      dmd -ofbuild/lapdance app/lapdance/main.d core/lapdance/*.d languages/d/*.d
+
+  test:
+    run: |
+      ./build/lapdance --version
+      printf 'import std.stdio;\nvoid main() { writeln("ok"); }\n' > /tmp/lapdance_smoke.d
+      ./build/lapdance format /tmp/lapdance_smoke.d
+      ./build/lapdance check /tmp/lapdance_smoke.d
+
+  check:
+    run: ./build/lapdance check /tmp/lapdance_smoke.d
+
+  clean:
+    run: |
+      rm -rf build /tmp/lapdance_smoke.d
+
+  run:
+    run: ./build/lapdance --help
