@@ -1,20 +1,16 @@
 module lapdance.token;
 
 import std.algorithm : canFind;
+
 import std.ascii : isDigit;
+
+import std.string : startsWith;
+
 import std.uni : isAlpha, isAlphaNum;
 
 enum TokenKind
 {
-    Identifier,
-    Keyword,
-    Number,
-    String,
-    Character,
-    Comment,
-    Operator,
-    Punctuation,
-    EOF
+    Identifier, Keyword, Number, String, Character, Comment, Documentation, Operator, Punctuation, EOF
 }
 
 struct SourceLocation
@@ -30,7 +26,7 @@ struct Token
     string text;
     SourceLocation location;
 
-    bool isKeyword() const
+    bool isKeyword()const
     {
         return kind == TokenKind.Keyword;
     }
@@ -48,15 +44,14 @@ class Lexer
         source = input;
     }
 
-    Token[] lex()
+    Token[]lex()
     {
-        Token[] tokens;
+        Token[]tokens;
         while (true)
         {
             auto token = nextToken();
-            tokens ~= token;
-            if (token.kind == TokenKind.EOF)
-                break;
+            tokens~=token;
+            if (token.kind == TokenKind.EOF)break;
         }
         return tokens;
     }
@@ -66,128 +61,103 @@ class Lexer
         while (index < source.length)
         {
             char ch = source[index];
-
-            if (ch == '\r')
+            if (ch == '\r' || ch == '\n')
             {
-                index++;
-                if (index < source.length && source[index] == '\n')
-                    index++;
-                line++;
-                column = 1;
+                consumeNewline();
                 continue;
             }
-
-            if (ch == '\n')
-            {
-                index++;
-                line++;
-                column = 1;
-                continue;
-            }
-
             if (ch == ' ' || ch == '\t')
             {
                 index++;
                 column++;
                 continue;
             }
-
             if (ch == '/' && index + 1 < source.length)
             {
-                if (source[index + 1] == '/')
-                    return readLineComment();
-                if (source[index + 1] == '*')
-                    return readBlockComment();
-                if (source[index + 1] == '+')
-                    return readNestedComment();
+                if (source[index + 1] == '/')return readLineComment();
+                if (source[index + 1] == '*')return readBlockComment();
+                if (source[index + 1] == '+')return readNestedComment();
             }
-
-            if (isAlpha(ch) || ch == '_')
-                return readIdentifier();
-
-            if (isDigit(ch))
-                return readNumber();
-
-            if (ch == '"' || ch == '\'')
-                return readStringLiteral();
-
-            auto opToken = readOperatorOrPunctuation();
-            if (opToken.kind != TokenKind.EOF)
-                return opToken;
-
+            if ((ch == 'q' || ch == 'r' || ch == 'x') && index + 1 < source.length && source[index + 1] == '"')return readPrefixedString();
+            if (isAlpha(ch) || ch == '_')return readIdentifier();
+            if (isDigit(ch))return readNumber();
+            if (ch == '"' || ch == '\'' || ch == '`')return readStringLiteral();
+            auto token = readOperatorOrPunctuation();
+            if (token.kind != TokenKind.EOF)return token;
             index++;
             column++;
         }
-
         return Token(TokenKind.EOF, "", SourceLocation(line, column, index));
+    }
+
+    private void consumeNewline()
+    {
+        if (source[index] == '\r' && index + 1 < source.length && source[index + 1] == '\n')index++;
+        index++;
+        line++;
+        column = 1;
     }
 
     private Token readIdentifier()
     {
         auto start = index;
-        auto startLine = line;
-        auto startColumn = column;
-        auto startOffset = index;
-
-        while (index < source.length)
+        auto location = SourceLocation(line, column, index);
+        while (index < source.length && (isAlphaNum(source[index]) || source[index] == '_'))
         {
-            char ch = source[index];
-            if (isAlphaNum(ch) || ch == '_')
-            {
-                index++;
-                column++;
-            }
-            else
-            {
-                break;
-            }
+            index++;
+            column++;
         }
-
-        string text = source[start .. index];
-        auto keyword = isKeyword(text);
-        return Token(keyword ? TokenKind.Keyword : TokenKind.Identifier, text,
-            SourceLocation(startLine, startColumn, startOffset));
+        auto text = source[start .. index];
+        return Token(isKeyword(text) ? TokenKind.Keyword : TokenKind.Identifier, text, location);
     }
 
     private Token readNumber()
     {
         auto start = index;
-        auto startLine = line;
-        auto startColumn = column;
-        auto startOffset = index;
-
+        auto location = SourceLocation(line, column, index);
+        bool exponent;
         while (index < source.length)
         {
-            char ch = source[index];
-            if (isDigit(ch) || ch == '_' || ch == '.' || ch == 'e' || ch == 'E' || ch == 'x' || ch == 'X' || ch == 'b' || ch == 'B')
+            auto ch = source[index];
+            if (isDigit(ch) || ch == '_' || ch == '.' || ch == 'x' || ch == 'X' || ch == 'b' || ch == 'B' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-')
             {
+                if (ch == 'e' || ch == 'E')exponent = true;
                 index++;
                 column++;
+                continue;
             }
-            else
-            {
-                break;
-            }
+            break;
         }
-
-        return Token(TokenKind.Number, source[start .. index],
-            SourceLocation(startLine, startColumn, startOffset));
+        return Token(TokenKind.Number, source[start .. index], location);
     }
 
     private Token readStringLiteral()
     {
-        char quote = source[index];
+        auto quote = source[index];
         auto start = index;
-        auto startLine = line;
-        auto startColumn = column;
-        auto startOffset = index;
+        auto location = SourceLocation(line, column, index);
         index++;
         column++;
-
-        bool escaped = false;
+        bool escaped;
         while (index < source.length)
         {
-            char ch = source[index];
+            auto ch = source[index];
+            if (quote == '`')
+            {
+                if (ch == '`')
+                {
+                    index++;
+                    column++;
+                    break;
+                }
+                if (ch == '\n' || ch == '\r')consumeNewline();
+                else
+                {
+                    index++;
+                    column++;
+                }
+                continue;
+            }
             if (escaped)
             {
                 escaped = false;
@@ -195,7 +165,6 @@ class Lexer
                 column++;
                 continue;
             }
-
             if (ch == '\\')
             {
                 escaped = true;
@@ -203,214 +172,177 @@ class Lexer
                 column++;
                 continue;
             }
-
             if (ch == quote)
             {
                 index++;
                 column++;
                 break;
             }
-
-            if (ch == '\n')
-            {
-                line++;
-                column = 1;
-            }
+            if (ch == '\n' || ch == '\r')consumeNewline();
             else
             {
+                index++;
                 column++;
             }
-            index++;
         }
+        return Token(quote == '\'' ? TokenKind.Character : TokenKind.String, source[start .. index],
+        location);
+    }
 
-        return Token(quote == '\'' ? TokenKind.Character : TokenKind.String,
-            source[start .. index], SourceLocation(startLine, startColumn, startOffset));
+    private Token readPrefixedString()
+    {
+        auto start = index;
+        auto location = SourceLocation(line, column, index);
+        index+=2;
+        column+=2;
+        while (index < source.length)
+        {
+            auto ch = source[index];
+            if (ch == '"')
+            {
+                index++;
+                column++;
+                break;
+            }
+            if (ch == '\n' || ch == '\r')consumeNewline();
+            else
+            {
+                index++;
+                column++;
+            }
+        }
+        return Token(TokenKind.String, source[start .. index], location);
     }
 
     private Token readLineComment()
     {
         auto start = index;
-        auto startLine = line;
-        auto startColumn = column;
-        auto startOffset = index;
-        index += 2;
-        column += 2;
-
-        while (index < source.length && source[index] != '\n')
+        auto location = SourceLocation(line, column, index);
+        index+=2;
+        column+=2;
+        while (index < source.length && source[index] != '\n' && source[index] != '\r')
         {
             index++;
             column++;
         }
-
-        return Token(TokenKind.Comment, source[start .. index],
-            SourceLocation(startLine, startColumn, startOffset));
+        auto text = source[start .. index];
+        return Token(text.startsWith("///") ? TokenKind.Documentation : TokenKind.Comment, text, location);
     }
 
     private Token readBlockComment()
     {
         auto start = index;
-        auto startLine = line;
-        auto startColumn = column;
-        auto startOffset = index;
-        index += 2;
-        column += 2;
+        auto location = SourceLocation(line, column, index);
+        index+=2;
+        column+=2;
         int depth = 1;
-
-        while (index + 1 < source.length)
+        while (index < source.length && depth > 0)
         {
-            if (source[index] == '/' && source[index + 1] == '*')
+            if (index + 1 < source.length && source[index .. index + 2] == "/*")
             {
                 depth++;
-                index += 2;
-                column += 2;
-                continue;
+                index+=2;
+                column+=2;
             }
-
-            if (source[index] == '*' && index + 1 < source.length && source[index + 1] == '/')
+            else if (index + 1 < source.length && source[index .. index + 2] == "*/")
             {
                 depth--;
-                index += 2;
-                column += 2;
-                if (depth == 0)
-                    break;
-                continue;
+                index+=2;
+                column+=2;
             }
-
-            if (source[index] == '\n')
+            else if (source[index] == '\n' || source[index] == '\r')consumeNewline();
+            else
             {
                 index++;
-                line++;
-                column = 1;
-                continue;
+                column++;
             }
-
-            index++;
-            column++;
         }
-
-        return Token(TokenKind.Comment, source[start .. index],
-            SourceLocation(startLine, startColumn, startOffset));
+        auto text = source[start .. index];
+        return Token(text.startsWith("/**") ? TokenKind.Documentation : TokenKind.Comment, text, location);
     }
 
     private Token readNestedComment()
     {
         auto start = index;
-        auto startLine = line;
-        auto startColumn = column;
-        auto startOffset = index;
-        index += 2;
-        column += 2;
+        auto location = SourceLocation(line, column, index);
+        index+=2;
+        column+=2;
         int depth = 1;
-
-        while (index + 1 < source.length)
+        while (index < source.length && depth > 0)
         {
-            if (source[index] == '/' && source[index + 1] == '+')
+            if (index + 1 < source.length && source[index .. index + 2] == "/+")
             {
                 depth++;
-                index += 2;
-                column += 2;
-                continue;
+                index+=2;
+                column+=2;
             }
-
-            if (source[index] == '+' && source[index + 1] == '/')
+            else if (index + 1 < source.length && source[index .. index + 2] == "+/")
             {
                 depth--;
-                index += 2;
-                column += 2;
-                if (depth == 0)
-                    break;
-                continue;
+                index+=2;
+                column+=2;
             }
-
-            if (source[index] == '\n')
+            else if (source[index] == '\n' || source[index] == '\r')consumeNewline();
+            else
             {
                 index++;
-                line++;
-                column = 1;
-                continue;
+                column++;
             }
-
-            index++;
-            column++;
         }
-
-        return Token(TokenKind.Comment, source[start .. index],
-            SourceLocation(startLine, startColumn, startOffset));
+        return Token(TokenKind.Comment, source[start .. index], location);
     }
 
     private Token readOperatorOrPunctuation()
     {
-        if (index >= source.length)
-            return Token(TokenKind.EOF, "", SourceLocation(line, column, index));
-
-        string twoChar = index + 1 < source.length ? source[index .. index + 2] : "";
-        string threeChar = index + 2 < source.length ? source[index .. index + 3] : "";
-
-        foreach (candidate; [
-                "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "+=", "-=",
-                "*=", "/=", "%=", "&=", "|=", "^=", "=>", "..", "...", "->",
-                "::", "<<=", ">>=", "&&=", "||=", "^^=", "^^", "~="
-            ])
+        if (index >= source.length)return Token(TokenKind.EOF, "", SourceLocation(line, column, index));
+        string two = index + 1 < source.length ? source[index .. index + 2] : "";
+        string three = index + 2 < source.length ? source[index .. index + 3] : "";
+        foreach (candidate; ["<<=", ">>=", "&&=", "||=", "^^=", "...", "==", "!=", "<=", ">=", "&&",
+        "||", "<<", ">>", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "=>", "..", "->",
+        "::", "^^", "~="])
         {
-            if (candidate.length == 3 && threeChar == candidate)
+            if ((candidate.length == 3 && three == candidate) || (candidate.length == 2 && two == candidate))
             {
-                auto result = Token(TokenKind.Operator, candidate, SourceLocation(line, column, index));
-                index += 3;
-                column += 3;
-                return result;
-            }
-            if (candidate.length == 2 && twoChar == candidate)
-            {
-                auto result = Token(TokenKind.Operator, candidate, SourceLocation(line, column, index));
-                index += 2;
-                column += 2;
-                return result;
+                auto token = Token(TokenKind.Operator, candidate, SourceLocation(line, column, index));
+                index+=candidate.length;
+                column+=cast(int)candidate.length;
+                return token;
             }
         }
-
-        if (source[index] == '(' || source[index] == ')' || source[index] == '{' ||
-            source[index] == '}' || source[index] == '[' || source[index] == ']' ||
-            source[index] == ';' || source[index] == ',' || source[index] == ':' ||
-            source[index] == '.')
+        if (source[index] == '(' || source[index] == ')' || source[index] == '{' || source[index] == '}' || source[index] == '[' || source[index] == ']' || source[index] == ';' || source[index] == ',' || source[index] == '.' || source[index] == ':')
         {
-            auto ch = source[index];
-            auto result = Token(TokenKind.Punctuation, [ch].idup, SourceLocation(line, column, index));
+            auto text = source[index .. index + 1];
+            auto token = Token(TokenKind.Punctuation, text, SourceLocation(line, column, index));
             index++;
             column++;
-            return result;
+            return token;
         }
-
-        foreach (candidate; ["=", "+", "-", "*", "/", "%", "!", "<", ">", "&", "|", "^", "~", "?", "@", "$"])
+        foreach (candidate; ["=", "+", "-", "*", "/", "%", "!", "<", ">", "&", "|", "^", "~", "?", "@",
+        "$", "#"])
         {
             if (source[index] == candidate[0])
             {
-                auto result = Token(TokenKind.Operator, candidate, SourceLocation(line, column, index));
+                auto token = Token(TokenKind.Operator, candidate, SourceLocation(line, column, index));
                 index++;
                 column++;
-                return result;
+                return token;
             }
         }
-
         return Token(TokenKind.EOF, "", SourceLocation(line, column, index));
     }
 
     private static bool isKeyword(string text)
     {
-        static immutable string[] keywords = [
-            "abstract", "alias", "align", "asm", "assert", "auto", "body", "bool",
-            "break", "case", "cast", "catch", "class", "const", "continue", "debug",
-            "default", "delegate", "delete", "deprecated", "do", "double", "else",
-            "enum", "export", "extern", "false", "final", "finally", "for", "foreach",
-            "foreach_reverse", "function", "goto", "if", "import", "in", "inout",
-            "interface", "immutable", "int", "invariant", "is", "lazy", "long", "mixin",
-            "module", "new", "nothrow", "null", "out", "override", "package", "pragma",
-            "private", "protected", "public", "pure", "real", "ref", "return", "scope",
-            "shared", "short", "static", "struct", "super", "switch", "synchronized",
-            "template", "this", "throw", "true", "try", "typedef", "typeof", "ubyte",
-            "ucent", "uint", "ulong", "union", "unittest", "ushort", "version", "void",
-            "volatile", "wchar", "while", "with"
-        ];
+        static immutable string[]keywords = ["abstract", "alias", "align", "asm", "assert", "auto", "body",
+        "bool", "break", "case", "cast", "catch", "class", "const", "continue", "debug", "default", "delegate",
+        "delete", "deprecated", "do", "double", "else", "enum", "export", "extern", "false", "final",
+        "finally", "for", "foreach", "foreach_reverse", "function", "goto", "if", "immutable", "import",
+        "in", "inout", "interface", "invariant", "is", "lazy", "long", "mixin", "module", "new", "nothrow",
+        "null", "out", "override", "package", "pragma", "private", "protected", "public", "pure", "real",
+        "ref", "return", "scope", "shared", "short", "static", "struct", "super", "switch", "synchronized",
+        "template", "this", "throw", "true", "try", "typeof", "ubyte", "uint", "ulong", "union", "unittest",
+        "ushort", "version", "void", "volatile", "wchar", "while", "with", "int", "float", "double",
+        "string", "char", "byte", "short", "long", "bool", "dchar", "cent", "ucent"];
         return keywords.canFind(text);
     }
 }
-

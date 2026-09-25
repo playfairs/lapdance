@@ -1,79 +1,83 @@
-import std.stdio;
 import std.algorithm.searching : canFind;
-import std.string : strip;
 
-import formatter;
+import std.file : readText;
+
+import std.stdio;
+
+import std.string : startsWith;
+
+import lapdance.formatter;
+
 import lapdance.config;
+
 import lapdance.token;
+
+import lapdance.parser;
 
 void require(bool condition, string message)
 {
-    if (!condition)
-    {
-        throw new Exception(message);
-    }
+    if (!condition)throw new Exception(message);
 }
 
-void testLexerBasic()
+DFormatter makeFormatter()
 {
-    auto lexer = new Lexer("int x = 1; // hi\nimport std.stdio;\n");
+    return new DFormatter();
+}
+
+void testLexer()
+{
+    auto lexer = new Lexer("/// docs\nint x = 1; // note\n/+ outer /+ inner +/ +/\nauto raw = `a { b }`; index++; index--;\n");
     auto tokens = lexer.lex();
-
-    require(tokens.length > 0, "lexer produced no tokens");
-    require(tokens[0].kind == TokenKind.Keyword, "first token should be keyword");
-    require(tokens[0].text == "int", "first token text mismatch");
-    require(tokens[1].text == "x", "identifier token mismatch");
-    require(tokens[2].text == "=", "assignment token mismatch");
-    require(tokens[3].text == "1", "number token mismatch");
-    require(tokens[4].kind == TokenKind.Punctuation, "semicolon should be punctuation");
-    require(tokens[5].kind == TokenKind.Comment, "comment token should be preserved");
+    require(tokens[0].kind == TokenKind.Documentation, "documentation comment token missing");
+    require(tokens[1].kind == TokenKind.Keyword, "type keyword token missing");
+    bool foundNested;
+    bool foundLineComment;
+    bool foundIncrement;
+    foreach (token; tokens)
+    {
+        if (token.kind == TokenKind.Comment && token.text.startsWith("/+"))foundNested = true;
+        if (token.kind == TokenKind.Comment && token.text.startsWith("//"))foundLineComment = true;
+        if (token.text == "++")foundIncrement = true;
+    }
+    require(foundNested, "nested comment token missing");
+    require(foundLineComment, "line comment token missing");
+    require(foundIncrement, "increment token missing");
 }
 
-void testFormatterIdempotent()
+void testFixture(string name)
 {
     auto config = defaultFormattingConfig();
-    auto formatter = new DFormatter();
-
-    string dirty = "import std.stdio;void main(){int x=1;if(x>0){writeln(\"ok\");}}";
-    string first = formatter.format(dirty, config);
-    string second = formatter.format(first, config);
-
-    require(first == second, "formatter is not idempotent");
-    require(first.canFind("import std.stdio;"), "import line missing");
-    require(first.canFind("void main()"), "main signature missing");
-    require(first.canFind("if (x > 0)"), "if spacing missing");
-    require(first.canFind("writeln(\"ok\")"), "call spacing missing");
+    auto input = readText("tests/fixtures/d/"~name~"/input.d");
+    auto expected = readText("tests/fixtures/d/"~name~"/expected.d");
+    auto actual = makeFormatter().format(input, config);
+    require(actual == expected, name~" fixture mismatch");
+    require(makeFormatter().format(actual, config) == actual, name~" fixture is not idempotent");
 }
 
-void testFormatterRespectsStrings()
+void testMalformedInputIsUnchanged()
 {
-    auto config = defaultFormattingConfig();
-    auto formatter = new DFormatter();
-
-    string source = "auto s = \"if (a > b) { x(); }\";\nvoid main(){writeln(s);}";
-    string formatted = formatter.format(source, config);
-
-    require(formatted.canFind("\"if (a > b) { x(); }\""), "string literal was reformatted");
-    require(formatted.canFind("void main()"), "main signature missing");
+    auto input = readText("tests/fixtures/d/malformed/input.d");
+    require(makeFormatter().format(input, defaultFormattingConfig()) == input, "malformed input was modified");
 }
 
-void testFormatterPreservesSlices()
+void testSameLineBraces()
 {
     auto config = defaultFormattingConfig();
-    auto formatter = new DFormatter();
-    auto formatted = formatter.format("auto tail = args[1 .. $];", config);
-
-    require(formatted.canFind("args[1 .. $]"), "slice expression was corrupted");
+    config.braceStyle = BraceStyle.SameLine;
+    auto actual = makeFormatter().format("void main(){return;}", config);
+    require(actual.canFind("void main() {"), "same-line brace style ignored");
 }
 
 int main()
 {
     try
     {
-        testLexerBasic();
-        testFormatterIdempotent();
-        testFormatterRespectsStrings();
-        testFormatterPreservesSlices();
+        testLexer();
+        foreach (name; ["modules", "imports", "declarations", "functions", "structs", "classes", "interfaces",
+        "enums", "aliases", "templates", "attributes", "expressions", "statements", "control-flow", "comments",
+        "strings", "multiline", "edge-cases"])testFixture(name);
+        testMalformedInputIsUnchanged();
+        testSameLineBraces();
         writeln("all tests passed");
         return 0;
     }
@@ -83,4 +87,3 @@ int main()
         return 1;
     }
 }
-

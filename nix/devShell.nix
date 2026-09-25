@@ -1,8 +1,12 @@
-{ pkgs, lib }:
+{ pkgs, lib, nox }:
 
 let
   dToolchain = [ pkgs.ldc ];
 in
 pkgs.mkShell {
-  packages = [ pkgs.nox pkgs.git ] ++ dToolchain;
+  packages = [
+    nox.packages.${pkgs.system}.default
+    pkgs.git
+  ]
+  ++ dToolchain;
 }

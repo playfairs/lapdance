@@ -4,13 +4,10 @@ import std.array : appender;
 import std.algorithm : sort;
 import std.file : dirEntries, exists, isDir, readText, SpanMode, write;
 import std.stdio;
-import std.string : splitLines, strip;
+import std.string : splitLines, strip, endsWith;
 
 import lapdance.config;
 import lapdance.formatter;
-import lapdance.input;
-import formatter;
-import lapdance.language;
 
 int main(string[] args)
 {
@@ -28,8 +25,7 @@ int main(string[] args)
 int runLapdance(string[] args)
 {
     auto config = defaultFormattingConfig();
-    auto registry = new FormatterRegistry();
-    registry.register(new DFormatter());
+    auto formatter = new DFormatter();
 
     if (args.length <= 1)
     {
@@ -52,7 +48,7 @@ int runLapdance(string[] args)
 
     if (remaining[0] == "--stdin")
     {
-        return formatStdin(config, registry);
+        return formatStdin(config, formatter);
     }
 
     string command = "format";
@@ -68,16 +64,16 @@ int runLapdance(string[] args)
         return 2;
     }
 
-    remaining = expandInputPaths(remaining, registry);
+    remaining = expandInputPaths(remaining);
 
     if (command == "check")
-        return runCheckMode(remaining, config, registry);
+        return runCheckMode(remaining, config, formatter);
     if (command == "diff")
-        return runDiffMode(remaining, config, registry);
-    return runFormatMode(remaining, config, registry);
+        return runDiffMode(remaining, config, formatter);
+    return runFormatMode(remaining, config, formatter);
 }
 
-string[] expandInputPaths(string[] paths, FormatterRegistry registry)
+string[] expandInputPaths(string[] paths)
 {
     string[] expanded;
     foreach (path; paths)
@@ -90,7 +86,7 @@ string[] expandInputPaths(string[] paths, FormatterRegistry registry)
 
         foreach (entry; dirEntries(path, SpanMode.depth))
         {
-            if (!entry.isDir && registry.acceptsPath(entry.name))
+            if (!entry.isDir && entry.name.endsWith(".d"))
                 expanded ~= entry.name;
         }
     }
@@ -104,15 +100,19 @@ void printHelp()
     writeln("Usage: lapdance [format|check|diff] <files...>");
     writeln("       lapdance --stdin");
     writeln("       lapdance --version");
+    writeln("");
+    writeln("A D code formatter.");
+    writeln("");
     writeln("Commands:");
-    writeln("  format     Format files in place");
-    writeln("  check      Report files that need formatting");
+    writeln("  format     Format D files in place");
+    writeln("  check      Report D files that need formatting");
     writeln("  diff       Show formatting differences");
-    writeln("  --stdin    Read source from stdin");
+    writeln("  --stdin    Read D source from stdin");
     writeln("  --version  Show version information");
 }
 
-int formatStdin(FormattingConfig config, FormatterRegistry registry, bool diffMode = false, bool checkMode = false)
+int formatStdin(FormattingConfig config, DFormatter formatter,
+        bool diffMode = false, bool checkMode = false)
 {
     string source;
     while (!stdin.eof())
@@ -123,8 +123,6 @@ int formatStdin(FormattingConfig config, FormatterRegistry registry, bool diffMo
     if (source.length == 0)
         return 0;
 
-    auto language = detectLanguage("stdin", source);
-    auto formatter = registry.resolve(language.name);
     auto formatted = formatter.format(source, config);
 
     if (checkMode)
@@ -141,7 +139,7 @@ int formatStdin(FormattingConfig config, FormatterRegistry registry, bool diffMo
     return 0;
 }
 
-int runFormatMode(string[] paths, FormattingConfig config, FormatterRegistry registry)
+int runFormatMode(string[] paths, FormattingConfig config, DFormatter formatter)
 {
     int failures;
     foreach (path; paths)
@@ -154,8 +152,6 @@ int runFormatMode(string[] paths, FormattingConfig config, FormatterRegistry reg
         }
 
         auto source = readText(path);
-        auto language = detectLanguage(path, source);
-        auto formatter = registry.resolve(language.name);
         auto formatted = formatter.format(source, config);
         if (source != formatted)
             write(path, formatted);
@@ -163,7 +159,7 @@ int runFormatMode(string[] paths, FormattingConfig config, FormatterRegistry reg
     return failures > 0 ? 1 : 0;
 }
 
-int runCheckMode(string[] paths, FormattingConfig config, FormatterRegistry registry)
+int runCheckMode(string[] paths, FormattingConfig config, DFormatter formatter)
 {
     int failures;
     foreach (path; paths)
@@ -176,8 +172,6 @@ int runCheckMode(string[] paths, FormattingConfig config, FormatterRegistry regi
         }
 
         auto source = readText(path);
-        auto language = detectLanguage(path, source);
-        auto formatter = registry.resolve(language.name);
         auto formatted = formatter.format(source, config);
         if (source != formatted)
         {
@@ -188,7 +182,7 @@ int runCheckMode(string[] paths, FormattingConfig config, FormatterRegistry regi
     return failures > 0 ? 1 : 0;
 }
 
-int runDiffMode(string[] paths, FormattingConfig config, FormatterRegistry registry)
+int runDiffMode(string[] paths, FormattingConfig config, DFormatter formatter)
 {
     int failures;
     foreach (path; paths)
@@ -201,8 +195,6 @@ int runDiffMode(string[] paths, FormattingConfig config, FormatterRegistry regis
         }
 
         auto source = readText(path);
-        auto language = detectLanguage(path, source);
-        auto formatter = registry.resolve(language.name);
         auto formatted = formatter.format(source, config);
         if (source != formatted)
         {
@@ -220,11 +212,13 @@ string diffText(string before, string after)
     auto result = appender!string();
     auto linesBefore = before.splitLines();
     auto linesAfter = after.splitLines();
-    size_t maxLines = linesBefore.length > linesAfter.length ? linesBefore.length : linesAfter.length;
+    size_t maxLines = linesBefore.length > linesAfter.length ? linesBefore.length
+        : linesAfter.length;
 
     foreach (idx; 0 .. maxLines)
     {
-        if (idx >= linesBefore.length || idx >= linesAfter.length || linesBefore[idx] != linesAfter[idx])
+        if (idx >= linesBefore.length || idx >= linesAfter.length
+                || linesBefore[idx] != linesAfter[idx])
         {
             result.put("- ");
             if (idx < linesBefore.length)
@@ -238,4 +232,3 @@ string diffText(string before, string after)
 
     return result.data;
 }
-

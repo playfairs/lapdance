@@ -1,0 +1,4 @@
+interface Reader
+{
+    void read();
+}

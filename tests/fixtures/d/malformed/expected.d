@@ -1,0 +1,4 @@
+void broken()
+{
+    if (true)
+    {

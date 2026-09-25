@@ -1,19 +1,13 @@
 module lapdance.config;
 
-enum BraceStyle
-{
-    NextLine, SameLine
-}
-
 struct FormattingConfig
 {
     int indentWidth = 4;
     bool useTabs = false;
     int maxLineWidth = 100;
-    string newline = "\n";
+    string newline = "\\n";
     bool trailingComma = false;
     bool preserveFinalNewline = true;
-    BraceStyle braceStyle = BraceStyle.SameLine;
 }
 
 FormattingConfig defaultFormattingConfig()
